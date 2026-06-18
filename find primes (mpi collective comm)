@@ -1,0 +1,147 @@
+/* Question 3 using MPI collective communication:
+ - Only the master process should get the 1D dynamic array size from the user.
+ - The master creates the array and fills it linearly with numbers from 1 to the array size (inclusive).
+ - The master process broadcasts the array size to all processes.
+ - The master process distributes the array among processes considering load balancing according to Algorithm 2.
+ - Each process receives its sub-array, checks if each number is prime, and replaces it with 1 if prime, or 0 if not.
+ - All processes send their processed sub-arrays back to the Master.
+ - The master gathers the sub-arrays, prints the original array first, and immediately below it, prints the resulting 0 and 1 array based on primality.
+ - Sub-functions must be used for prime checking and transformation operations. */
+
+////////////////coded by Muhammed Furkan Dişçi mfdisci.net@gmail.com//////////////////
+
+/* MPI toplu haberleşme (collective communication) kullanarak 3. Soru:
+ - Sadece master işlemci tek boyutlu dinamik dizinin boyutunu kullanıcıdan almalıdır.
+ - Master işlemci diziyi oluşturmalı ve 1'den dizi boyutuna kadar olan sayılarla (1 ve dizi boyutu dahil) doğrusal olarak doldurmalıdır.
+ - Master işlemci dizi boyutunu tüm işlemcilere bildirmelidir (broadcast).
+ - Master işlemci diziyi işlemciler arasında Algoritma 2'ye göre yük dengesini gözeterek dağıtmalıdır.
+ - Her işlemci kendi payına düşen alt diziyi almalı, her sayının asal olup olmadığını kontrol etmeli ve asalsa 1, değilse 0 ile değiştirmelidir.
+ - Tüm işlemciler işledikleri alt dizileri Master işlemciye geri göndermelidir.
+ - Master işlemci alt dizileri toplamalı (gather), önce orijinal diziyi, hemen altına ise asallığa göre oluşan 0 ve 1'li diziyi ekrana yazdırmalıdır.
+ - Asallık kontrolü ve dönüştürme işlemleri için alt fonksiyonlardan (sub-functions) yararlanılmalıdır. */
+
+#include "mpi.h"
+#include <iostream>
+#include <cmath>
+using namespace std;
+
+bool isPrime(int n);
+void processArray(int* arr, int size);
+
+int main(int argc, char*argv[]){
+	int size,arraySize,rank,quotient,remainder,
+	    ceiledValue,flooredValue,chunkSize,disp;
+	int *sendBufferPtr,*receiveBufferPtr,*dispPtr,*sendCountsPtr,*originalArray;
+
+
+	MPI_Init(&argc,&argv);
+	MPI_Comm_size(MPI_COMM_WORLD,&size);
+	MPI_Comm_rank(MPI_COMM_WORLD,&rank);
+
+	if(rank==0){
+		cout<<"enter array size:";
+		cin>>arraySize;
+		sendBufferPtr=new int[arraySize];
+		originalArray=new int[arraySize];
+		for(int i=0;i<arraySize;i++){
+			sendBufferPtr[i]=i+1;
+		}
+		for(int i=0;i<arraySize;i++){
+                        originalArray[i]=i+1;
+		}
+	}
+	//Broadcast the array size to all processes
+	MPI_Bcast(&arraySize,1,MPI_INT,0,MPI_COMM_WORLD);
+	
+	//Load balancing calculations (Algorithm 2)
+	quotient=arraySize/size;
+	remainder=arraySize%size;
+	ceiledValue=(int)ceil((double)arraySize/size);
+	flooredValue=(int)floor((double)arraySize/size);
+
+	if(rank<remainder)
+	{
+		receiveBufferPtr=new int[ceiledValue];
+		chunkSize=ceiledValue;
+	}
+	else
+	{
+		receiveBufferPtr=new int[flooredValue];
+		chunkSize=flooredValue;
+	}
+	disp=0;
+	if(rank==0)
+	{	dispPtr=new int[size];
+       		sendCountsPtr=new int[size];
+		for(int i=0;i<size;i++)
+		{	dispPtr[i]=disp;
+
+			if(i<remainder)
+			{
+				sendCountsPtr[i]=ceiledValue;
+				disp+=ceiledValue;
+			}
+			else
+			{
+				sendCountsPtr[i]=flooredValue;
+				disp+=flooredValue;
+			}
+		}
+	
+	}
+	//Scatter the data to the processes
+	MPI_Scatterv(sendBufferPtr,sendCountsPtr,dispPtr,MPI_INT,receiveBufferPtr,chunkSize,MPI_INT,0,MPI_COMM_WORLD);
+	
+	// Each process runs its sub-array through the primality function
+ 	processArray(receiveBufferPtr,chunkSize);
+
+	// Gather the processed sub-arrays at the Master (sendBufferPtr will now hold 0s and 1s)
+	MPI_Gatherv(receiveBufferPtr,chunkSize,MPI_INT,sendBufferPtr,sendCountsPtr,dispPtr,MPI_INT,0,MPI_COMM_WORLD);
+	
+	//Master process prints the outputs one below the other after all operations are complete
+	if(rank==0){
+		cout << "\nOriginal Array:\n";
+        	for(int j = 0; j < arraySize; j++){
+           		cout << originalArray[j] <<"\t";
+       		}
+		cout << "\nPrimality Array:\n";
+		cout<<endl;
+		for(int j=0;j<arraySize;j++){
+			cout<<sendBufferPtr[j]<<"\t";
+		}
+		//Memory cleanup
+		delete [] sendBufferPtr;
+		delete [] dispPtr;
+		delete [] sendCountsPtr;
+		delete [] originalArray;
+	}
+
+
+
+	MPI_Finalize();
+	delete [] receiveBufferPtr;
+	return 0;
+	}
+
+//Function to check if a number is prime
+bool isPrime(int n)
+{
+    if(n < 2)
+        return false;
+
+    for(int i = 2; i * i <= n; i++)
+    {
+        if(n % i == 0)
+            return false;
+    }
+
+    return true;
+}
+//Function to convert elements in the sub-array to 1 or 0 based on primality
+void processArray(int* arr, int size)
+{
+    for(int i = 0; i < size; i++)
+    {
+        arr[i] = isPrime(arr[i]) ? 1 : 0;
+    }
+}
