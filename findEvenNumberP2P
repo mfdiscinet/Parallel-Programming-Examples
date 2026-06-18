@@ -1,0 +1,109 @@
+/* Question: Using MPI point-to-point communication;
+ Only the master processor should get the lower and upper limit values for a number range from the user.
+ The master must send the lower and upper limit values to the slave processors.
+ The relevant number range must be distributed among all processors in the communicator world using a cyclic data distribution method (including upper and lower limits).
+ Each processor should use a stopwatch to find how many of the numbers assigned to it are even numbers and determine its execution time for finding those even numbers.
+ Slaves must send the count of even numbers they found to the Master.
+ The Master must print the total count of even numbers, taking its own processed data into account as well.
+ Slaves must send their search operation time to the Master.
+ The Master must print the rank and execution time of the processor with the longest search time, including itself.
+ Use a sub-function with a bool signature to check if a number is even. 
+*/
+
+//////////////////////////////coded by Muhammed Furkan Dişçi mail:mfdisci.net@gmail.com/////////////////////////////////////////////////
+
+/*Soru : MPI noktadan noktaya haberleşme kullanarak;
+ Sadece master işlemci kullanıcıdan bir sayı aralığı için alt ve üst limit değerlerini almalıdır.
+ Master alt ve üst limit değerlerini slave işlemcilere göndermelidir.
+ İlgili sayı aralığı, iletişimci dünyasındaki tüm işlemcilere çevrimsel veri dağıtım yöntemiyle paylaştırılmalıdır(üst ve alt limit dahil).
+ Her işlemci kronometre kullanarak kendi payına düşen sayılardan kaçı çift sayı bulmalı ve çift sayı bulmada çalışma süresini belirlemelidir.
+ Slaveler buldukları çift sayı  adedini Master a göndermelidir.
+ Master kendi işlediği veriyi de dikkate alarak toplam çift sayı sayı adedini yazdırmalıdır.
+ Slaveler arama işlemi süresini Master a göndermelidir.
+ Master kendisi de dahil en uzun arama süresine sahip işlemcinin rankını ve çalışma süresini birlikte ekrana yazdırmalıdır.
+ Çift sayı bulma için bool imzalı bir alt fonksiyondan yararlanınız. 
+*/
+
+
+#include <mpi.h>
+#include <iostream>
+using namespace std;
+
+#define TAG_LOWER 0
+#define TAG_UPPER 1
+#define TAG_EVEN_COUNT 2
+#define TAG_TIME 3
+bool isEven(int number);
+
+
+int main(int argc,char *argv[]){
+
+	int size,rank,lowerLimit,upperLimit;
+	MPI_Init(&argc,&argv);
+	MPI_Comm_size(MPI_COMM_WORLD,&size);
+	MPI_Comm_rank(MPI_COMM_WORLD,&rank);
+	MPI_Status status;
+
+	if(rank==0){
+		cout<<"enter lower limit:";
+		cin>>lowerLimit;
+		cout<<"enter upper limit:";
+		cin>>upperLimit;
+		cout<<endl;
+		for(int i=1;i<size;i++){
+			MPI_Send(&lowerLimit,1,MPI_INT,i,TAG_LOWER,MPI_COMM_WORLD);
+			MPI_Send(&upperLimit,1,MPI_INT,i,TAG_UPPER,MPI_COMM_WORLD);
+		}
+	}
+	else{
+		MPI_Recv(&lowerLimit,1,MPI_INT,0,TAG_LOWER,MPI_COMM_WORLD,&status);
+	        MPI_Recv(&upperLimit,1,MPI_INT,0,TAG_UPPER,MPI_COMM_WORLD,&status);		
+	}
+
+	double startTime=MPI_Wtime();
+	int localEvenCount=0;
+	for(int i=lowerLimit+rank;i<=upperLimit;i+=size){
+		if(isEven(i))
+			localEvenCount++;
+	}
+	double endTime=MPI_Wtime();
+	double elapsedTime=endTime-startTime;
+	// Slaves are sending the results to the master...
+	if(rank!=0){
+		MPI_Send(&localEvenCount,1,MPI_INT,0,TAG_EVEN_COUNT,MPI_COMM_WORLD);
+		MPI_Send(&elapsedTime,1,MPI_DOUBLE,0,TAG_TIME,MPI_COMM_WORLD);
+	}
+
+
+	// The Master must print the total count of even numbers, taking its own processed data into account.
+        // The Master must print the rank and execution time of the processor with the longest search time, including itself.
+	else
+	{	double maxTime=elapsedTime;
+		int totalEvenCount=localEvenCount;
+		int maxTimeRank=0;
+
+		for(int i=1;i<size;i++){
+			int receivedEvenCount;
+			double receivedTime;
+				
+			MPI_Recv(&receivedEvenCount,1,MPI_INT,i,TAG_EVEN_COUNT,MPI_COMM_WORLD,&status);
+			MPI_Recv(&receivedTime,1,MPI_DOUBLE,i,TAG_TIME,MPI_COMM_WORLD,&status);
+			totalEvenCount+=receivedEvenCount;
+
+			if(receivedTime>maxTime)
+			{	maxTime=receivedTime;
+				maxTimeRank=i;
+			}
+		}
+		cout<<"my rank:"<<maxTimeRank<<" "<<"and my execution time:"<<maxTime<<endl;
+		cout<<"total number of even numbers in the range:"<<totalEvenCount<<endl;
+
+	}
+
+	MPI_Finalize();
+	return 0;
+	}
+
+bool isEven(int number) {
+	return (number % 2 == 0);
+}
